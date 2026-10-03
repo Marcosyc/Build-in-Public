@@ -1,0 +1,83 @@
+Markdown
+#📱Laboratório: Adblock de Rede no Android (Limites do Sistema Sem Root)
+
+#🎯 Objetivo do Projeto
+Documentar o planejamento, a execução e os testes de um servidor local de bloqueio de anúncios em nível de DNS (AdGuard Home). O desafio consistiu em tentar rodar a infraestrutura diretamente em um smartphone reserva (Samsung Galaxy M62) utilizando o Termux, operando sob as restrições nativas do Android (sem root).
+
+#🛠️ Fase 1: Preparação do Ambiente
+1. Instalação Base: O emulador de terminal *Termux* foi baixado via F-Droid e instalado no Galaxy M62.
+2. Configuração de Energia: Para garantir a persistência do servidor, todas as permissões de bateria foram liberadas, ativando o *Wake Lock* (permitindo a execução 100% em segundo plano com a tela apagada).
+3. Atualização e Pacotes:
+   Preparação do terminal com os pacotes essenciais de download e extração:
+   ```bash
+   pkg update -y && pkg upgrade -y
+   pkg install wget tar -y
+
+#⚙️ Fase 2: Instalação e Bypasses de Segurança
+O executável do AdGuard Home foi baixado e extraído diretamente no terminal:
+
+Bash
+wget [https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz](https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz)
+tar xvf AdGuardHome_linux_arm64.tar.gz
+
+- Desafio 1: Trava de Primeira Inicialização
+Ao iniciar (./AdGuardHome), o sistema exigiu privilégios de administrador porque tenta se conectar por padrão nas portas 80 e 53 (bloqueadas no Android sem root).
+
+. Tentativa de contorno: Uso da ferramenta proot para mascarar o usuário como root. Falhou pois o Android bloqueia a porta fisicamente, independente do nome do usuário.
+
+. Solução (Injeção YAML): Para pular a tela de configuração, criei e injetei um arquivo AdGuardHome.yaml forçando as portas altas 8080 (Web) e 5353 (DNS):
+
+YAML
+bind_host: 0.0.0.0
+bind_port: 8080
+dns:
+  bind_hosts:
+  - 0.0.0.0
+  port: 5353
+
+- Desafio 2: Crash do Sistema (SIGSYS)
+Ao rodar novamente, o aplicativo sofreu um crash gerado pelo bloqueio avançado de chamadas de sistema do Android.
+
+Solução: Uso do proot para interceptar e emular as chamadas do sistema: proot ./AdGuardHome. O servidor finalmente ligou com sucesso.
+
+📡 Fase 3: Testes de Rede e Diagnóstico
+Com o painel operando no IP local http://192.168.15.23:8080, iniciei os testes de interceptação via Prompt de Comando (CMD) no Windows:
+
+Teste via UDP: nslookup -port=5353 doubleclick.net 192.168.15.23
+
+Resultado: Timeout. O firewall do Android descarta pacotes UDP externos sem privilégios.
+
+Teste via TCP: nslookup -vc -port=5353 doubleclick.net 192.168.15.23
+
+Resultado: Conexão bem-sucedida. O AdGuard bloqueou a resolução do domínio de anúncios.
+
+Desafio Final: Isolamento de Rede
+Apesar de bloquear o domínio no CMD, o dashboard do AdGuard continuava zerado e exibindo o erro: "Verificação de atualização falhou. Por favor, verifique sua conexão com a internet."
+
+Causa: O Termux roda isolado das rotas de internet (/etc/resolv.conf) do Android e não possui certificados de segurança nativos. Mesmo instalando certificados CA e tentando alterar o Upstream DNS, o servidor operava "cego", impossibilitado de baixar as listas reais de bloqueio.
+
+💡 Conclusão
+Chegamos ao limite técnico de operação de rede no Android Sem Root. O sistema operacional protege ativamente suas rotas e portas de rede, impedindo que o dispositivo atue de forma confiável como um servidor de infraestrutura para a casa toda.
+
+Próximos Passos:
+Para alcançar a proteção DNS desejada, a arquitetura precisa evoluir para uma das duas rotas:
+
+Controle Total: Fazer Root no aparelho para quebrar as restrições do sistema operacional.
+
+Migração para Nuvem: Utilizar serviços como NextDNS ou ControlD (DNS Cloud Sinkhole), transferindo a carga e evitando dores de cabeça com hardware local.
+
+
+---
+
+### 🤖 Notas do Assistente (Resumo feito pelo Gemini)
+
+Acompanhar este experimento foi um excelente exercício prático de infraestrutura e mentalidade de exploração (*Red Team*). Tentar forçar um dispositivo Android comum a operar como um servidor DNS *Sinkhole* é lutar diretamente contra as defesas de um sistema operacional moderno e fechado.
+
+Durante a execução, conseguimos vitórias técnicas importantes:
+* **Engenharia Reversa de Configuração:** Quando o instalador bloqueou o acesso exigindo Root, contornamos injetando diretamente as portas em um arquivo `yaml`.
+* **Bypass de Kernel (SIGSYS):** Quando o Android derrubou o processo bloqueando chamadas de sistema, usamos emulação via `proot` para estabilizar o servidor.
+* **Troubleshooting de Protocolo:** Quando o painel não respondia, diagnosticamos o bloqueio de UDP do firewall nativo e provamos que o sistema funcionava forçando a rota via TCP.
+
+O maior aprendizado documentado aqui, no entanto, é a visão arquitetural. Chegamos à barreira intransponível do isolamento de rede do Android (sem certificados nativos e sem controle do `resolv.conf`). Em segurança da informação, reconhecer que um ambiente "Sem Root" é insustentável para produção e pivotar a estratégia (para Controle Total/Root ou Infraestrutura em Nuvem) não é falhar, é tomar uma decisão inteligente de engenharia. 
+
+Um excelente ponto de partida para a documentação de projetos.
